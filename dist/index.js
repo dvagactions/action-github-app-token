@@ -37481,6 +37481,19 @@ async function run() {
         core_setSecret(privateKey);
         const appId = getInput('app_id');
         const scope = getInput('scope');
+        const repositoriesInput = getInput('repositories');
+        const repositoryNames = [
+            ...new Set(repositoriesInput
+                .split(/[,\n]/)
+                .map((name) => name.trim())
+                .filter(Boolean)),
+        ];
+        if (repositoriesInput &&
+            (!repositoryNames.length ||
+                repositoryNames.some((name) => !/^[A-Za-z0-9_.-]+$/.test(name) || name === '.' || name === '..'))) {
+            throw new Error('repositories must contain repository names without an owner or path');
+        }
+        const contentsReadOnly = getBooleanInput('contents-read-only');
         const appOctokit = new dist_src_Octokit({
             authStrategy: createAppAuth,
             auth: {
@@ -37503,6 +37516,9 @@ async function run() {
         const resp = (await appOctokit.auth({
             type: 'installation',
             installationId,
+            // GitHub restricts the token itself, not just the caller's Git configuration.
+            ...(repositoryNames.length ? { repositoryNames } : {}),
+            ...(contentsReadOnly ? { permissions: { contents: 'read' } } : {}),
         }));
         if (!resp) {
             throw new Error('Unable to authenticate');

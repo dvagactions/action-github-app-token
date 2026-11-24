@@ -12,6 +12,14 @@ inputs:
     required: false
     description: 'Scope of installation account'
     default: ''
+  repositories:
+    required: false
+    description: 'Comma- or newline-separated repository names within the selected installation; omitted means all installation repositories'
+    default: ''
+  contents-read-only:
+    required: false
+    description: 'Request only repository Contents read permission (plus implicit Metadata read)'
+    default: 'false'
 outputs:
   token:
     description: 'Github Token for App installation'

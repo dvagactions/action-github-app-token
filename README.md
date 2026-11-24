@@ -33,3 +33,23 @@ You will need to provide the GitHub App ID and private key. The action will then
       repository: getsentry/my-private-repo
       token: ${{ steps.my-app.outputs.token }}
 ```
+
+## Restricting an installation token
+
+`repositories` accepts comma- or newline-separated repository names in the
+selected installation. Use `scope` for the installation owner. The app must
+already be installed on each requested repository.
+
+`contents-read-only: true` requests only repository `contents: read` permission;
+GitHub also grants implicit `metadata: read`. This restricts the issued token.
+Omitting both options preserves the existing installation-token permissions and
+repository access. A rejected restricted request fails without an unrestricted retry.
+
+```yaml
+with:
+  app_id: ${{ secrets.WORKFLOWS_APP_ID }}
+  private_key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+  scope: dvag
+  repositories: lumos
+  contents-read-only: true
+```
