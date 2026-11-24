@@ -2,6 +2,7 @@ import {jest, describe, test, expect, beforeEach} from '@jest/globals';
 
 jest.unstable_mockModule('@actions/core', () => ({
   getInput: jest.fn(),
+  getBooleanInput: jest.fn(),
   setSecret: jest.fn(),
   setOutput: jest.fn(),
   setFailed: jest.fn(),
@@ -38,6 +39,9 @@ function mockInputs(overrides: Record<string, string> = {}): void {
   (
     mockedCore.getInput as jest.Mock<(name: string) => string>
   ).mockImplementation((name: string) => defaults[name] || '');
+  (
+    mockedCore.getBooleanInput as jest.Mock<(name: string) => boolean>
+  ).mockImplementation((name: string) => defaults[name] === 'true');
 }
 
 function mockOctokit({
@@ -50,11 +54,13 @@ function mockOctokit({
   authResponse?: {token: string} | null;
   listInstallationsError?: Error;
   authError?: Error;
-} = {}): void {
+} = {}) {
   const mockAuth = authError
-    ? jest.fn<() => Promise<never>>().mockRejectedValue(authError)
+    ? jest
+        .fn<(_options: unknown) => Promise<never>>()
+        .mockRejectedValue(authError)
     : jest
-        .fn<() => Promise<typeof authResponse>>()
+        .fn<(_options: unknown) => Promise<typeof authResponse>>()
         .mockResolvedValue(authResponse);
 
   const mockListInstallations = listInstallationsError
@@ -67,6 +73,7 @@ function mockOctokit({
     apps: {listInstallations: mockListInstallations},
     auth: mockAuth,
   }));
+  return {auth: mockAuth};
 }
 
 beforeEach(() => {
@@ -191,5 +198,56 @@ describe('action-github-app-token', () => {
         baseUrl: 'https://api.github.com',
       }),
     );
+  });
+});
+
+describe('restricted repository contents tokens', () => {
+  test('restricts both repositories and contents permission at token creation', async () => {
+    mockInputs({
+      scope: 'my-org',
+      repositories: 'lumos, other\nlumos',
+      'contents-read-only': 'true',
+    });
+    const {auth} = mockOctokit();
+    await runAction();
+    expect(auth).toHaveBeenCalledWith({
+      type: 'installation',
+      installationId: 1,
+      repositoryNames: ['lumos', 'other'],
+      permissions: {contents: 'read'},
+    });
+    expect(mockedCore.setOutput).toHaveBeenCalledWith('token', FAKE_TOKEN);
+  });
+  test('preserves existing installation permissions when options are omitted', async () => {
+    mockInputs();
+    const {auth} = mockOctokit();
+    await runAction();
+    expect(auth).toHaveBeenCalledWith({
+      type: 'installation',
+      installationId: 1,
+    });
+  });
+  test.each(['owner/repo', '../repo', ', \n,', '.', '..'])(
+    'rejects invalid repository scope %s before authentication',
+    async (repositories) => {
+      mockInputs({repositories});
+      mockOctokit();
+      await runAction();
+      expect(mockedCore.setFailed).toHaveBeenCalled();
+      expect(Octokit).not.toHaveBeenCalled();
+      expect(mockedCore.setOutput).not.toHaveBeenCalled();
+    },
+  );
+  test('does not retry an unscoped token when the scoped request fails', async () => {
+    mockInputs({repositories: 'lumos', 'contents-read-only': 'true'});
+    const {auth} = mockOctokit({
+      authError: new Error('repository not installed'),
+    });
+    await runAction();
+    expect(auth).toHaveBeenCalledTimes(1);
+    expect(mockedCore.setFailed).toHaveBeenCalledWith(
+      'repository not installed',
+    );
+    expect(mockedCore.setOutput).not.toHaveBeenCalled();
   });
 });
